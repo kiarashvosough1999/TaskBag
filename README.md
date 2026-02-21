@@ -134,7 +134,7 @@ So the holder of the TaskBag can **fail to deallocate** and create a **strong re
 
 3. For **long-lived or infinite work** (e.g. `for await value in stream { ... }`), the same rules apply: the task may never complete, so without `[weak self]` the owner and the bag stay alive forever. Explicitly capture only what you need (e.g. the stream) and use weak references for the owner. See [“Using Async For/Await? You’re Probably Doing It Wrong”](https://medium.com/the-swift-cooperative/using-async-for-await-youre-probably-doing-it-wrong-88b66fbb0e84) for the broader async/await and `for await` pitfalls.
 
-4. **Check for task cancellation** in long-running work. When the bag cancels a task (via `cancel()`, `cancel(id:)`, or deinit), the task is marked cancelled but your code must actually stop. Use `Task.isCancelled` or `try Task.checkCancellation()` (throws `CancellationError`) so the task exits when cancelled:
+4. **Check for task cancellation** in long-running work. When the bag cancels a task (via `cancel()`, `cancel(id:)`, or deinit), the task is marked cancelled but your code must actually stop. Use `Task.isCancelled` or `Task.checkCancellation()` (wrap in `do`/`catch` since `addTask`/`startTask` take non-throwing closures) so the task exits when cancelled:
 
    ```swift
    bag.addTask { [weak self] in
@@ -143,14 +143,18 @@ So the holder of the TaskBag can **fail to deallocate** and create a **strong re
            try? await Task.sleep(nanoseconds: 1_000_000_000)
        }
    }
-   // or
+   // or, using checkCancellation (do/catch because the closure is non-throwing):
    bag.addTask {
-       try Task.checkCancellation()  // throw to exit early
-       await doLongWork()
+       do {
+           try Task.checkCancellation()
+           await doLongWork()
+       } catch {
+           // exit when cancelled
+       }
    }
    ```
 
-5. **In a `for await` loop, check `self` for non-null and check for cancellation inside the loop.** With `[weak self]`, use `guard let self else { break }` so that when the owner is deallocated the loop exits, and you get a non-optional `self` for async calls (e.g. `await self.handle(value)`). Also check `Task.isCancelled` (or `try Task.checkCancellation()`) so the loop exits when the bag cancels the task:
+5. **In a `for await` loop, check `self` for non-null and check for cancellation inside the loop.** With `[weak self]`, use `guard let self else { break }` so that when the owner is deallocated the loop exits, and you get a non-optional `self` for async calls (e.g. `await self.handle(value)`). Also check `Task.isCancelled` (or use `Task.checkCancellation()` in a `do`/`catch`) so the loop exits when the bag cancels the task:
 
    ```swift
    bag.addTask { [weak self, stream] in
