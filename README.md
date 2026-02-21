@@ -1,5 +1,9 @@
 # TaskBag
 
+<p align="center">
+  <img src="assets/taskbag-logo.png" alt="TaskBag logo" width="240">
+</p>
+
 A small Swift library for managing async tasks by ID. Start at most one task per ID, get automatic cleanup when tasks finish, and cancellation when the bag is deallocated.
 
 ## Features
