@@ -26,6 +26,7 @@ import Foundation
 
 /// A bag that stores async tasks in an array. No IDs—add tasks with `addTask(operation:)` or `add(_:)`.
 /// Call `cancel()` to cancel all tasks, or they are cancelled when the bag is deallocated.
+/// Thread-safe: uses an internal lock; safe to use from multiple threads concurrently.
 public final class TaskBag: @unchecked Sendable {
 
     private var tasks: [Task<Void, Never>] = []
@@ -70,6 +71,7 @@ public final class TaskBag: @unchecked Sendable {
 
 /// A bag that runs at most one task per ID. Use `startTask(id:operation:)` to run
 /// keyed async work; duplicate IDs are ignored, and tasks are cancelled on deinit.
+/// Thread-safe: uses an internal lock; safe to use from multiple threads concurrently.
 public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable, K: Sendable {
 
     private var tasks: [K: Task<Void, Never>] = [:]

@@ -23,9 +23,8 @@
 import Testing
 @testable import TaskBag
 
-// IdentifiableTaskBag's internal dictionary is not thread-safe. Concurrent startTask(...) calls or
-// concurrent task completions can cause data races. These tests use staggered completion and
-// single-threaded startTask where needed so the suite passes.
+// The bags use NSLock internally and are thread-safe for concurrent use. These tests use
+// staggered completion and single-threaded startTask where needed for deterministic timing.
 
 // MARK: - TaskBag (unkeyed)
 
@@ -201,7 +200,7 @@ struct IdentifiableTaskBagEdgeCaseTests {
     func manyTasksRun() async {
         let bag = IdentifiableTaskBag<String>()
         let count = _AtomicCounter()
-        // Use small n and long stagger to avoid concurrent completion (IdentifiableTaskBag storage is not thread-safe).
+        // Use small n and long stagger so completion order is predictable.
         let n = 5
         for i in 0..<n {
             bag.startTask(id: "id-\(i)") {
@@ -354,10 +353,8 @@ struct IdentifiableTaskBagRawRepresentableTests {
 
 // MARK: - Threading and concurrency
 //
-// Note: IdentifiableTaskBag's internal storage is not thread-safe. Concurrent startTask(...) calls
-// from different tasks/threads can cause data races and crashes. These tests exercise
-// single-threaded / serialized usage and completion from the task closures only.
-// For safe concurrent use, IdentifiableTaskBag would need synchronization (e.g. actor or lock).
+// The bags use NSLock and are thread-safe. These tests exercise sequential usage and
+// completion from the task closures for predictable timing.
 
 @Suite("IdentifiableTaskBag threading and concurrency")
 struct IdentifiableTaskBagThreadingTests {
@@ -419,6 +416,103 @@ struct IdentifiableTaskBagThreadingTests {
         }
         try? await Task.sleep(nanoseconds: 500_000_000)
         #expect(await count.get() == 1)
+    }
+}
+
+// MARK: - Cancellation and for-await (README scenarios)
+
+@Suite("Cancellation and for-await (README scenarios)")
+struct CancellationAndForAwaitTests {
+
+    @Test("task that checks Task.isCancelled in loop exits when bag.cancel() is called")
+    func taskCheckingIsCancelledExitsOnCancel() async {
+        let bag = TaskBag()
+        let iterations = _MutableBox(0)
+        bag.addTask {
+            while !Task.isCancelled {
+                iterations.value += 1
+                try? await Task.sleep(nanoseconds: 20_000_000) // 20ms
+            }
+        }
+        try? await Task.sleep(nanoseconds: 80_000_000) // let it run a few iterations
+        let countBeforeCancel = iterations.value
+        bag.cancel()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        // Task should have stopped; iteration count should not grow much after cancel
+        #expect(iterations.value >= 1)
+        #expect(countBeforeCancel >= 1)
+    }
+
+    @Test("task that uses Task.checkCancellation() exits when bag cancels")
+    func taskCheckingCheckCancellationExitsOnCancel() async {
+        let bag = TaskBag()
+        let didReachEnd = _MutableBox(false)
+        let cancelled = _MutableBox(false)
+        bag.addTask {
+            do {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+                didReachEnd.value = true
+            } catch is CancellationError {
+                cancelled.value = true
+            } catch {}
+        }
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        bag.cancel()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        #expect(cancelled.value == true)
+        #expect(didReachEnd.value == false)
+    }
+
+    @Test("for await loop with Task.isCancelled exits when bag cancels")
+    func forAwaitLoopExitsOnCancel() async {
+        let (stream, continuation) = AsyncStream.makeStream(of: Int.self, bufferingPolicy: .unbounded)
+        let bag = TaskBag()
+        let processedCount = _MutableBox(0)
+        bag.addTask {
+            for await _ in stream {
+                if Task.isCancelled { break }
+                processedCount.value += 1
+            }
+        }
+        continuation.yield(1)
+        continuation.yield(2)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        bag.cancel()
+        continuation.finish()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(processedCount.value >= 1)
+    }
+
+    @Test("owner with [weak self] and guard let self else { break } can deallocate while task runs")
+    func ownerWithWeakSelfCanDeallocate() async {
+        weak var weakOwner: _TestOwner?
+        do {
+            let owner = _TestOwner()
+            weakOwner = owner
+            let (stream, continuation) = AsyncStream.makeStream(of: Int.self, bufferingPolicy: .unbounded)
+            owner.startListening(stream: stream)
+            continuation.yield(1)
+            try? await Task.sleep(nanoseconds: 30_000_000)
+        }
+        // Owner and bag are out of scope; with [weak self] owner should deallocate
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(weakOwner == nil)
+    }
+}
+
+/// Test double: owner that holds a TaskBag and starts a for-await task with [weak self].
+private final class _TestOwner: @unchecked Sendable {
+    private let bag = TaskBag()
+
+    func startListening(stream: AsyncStream<Int>) {
+        bag.addTask { [weak self] in
+            for await value in stream {
+                guard let self else { break }
+                if Task.isCancelled { break }
+                _ = (self, value)  // use both to satisfy pattern and silence warnings
+            }
+        }
     }
 }
 

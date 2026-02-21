@@ -11,7 +11,7 @@ A small Swift library for managing async tasks: a simple **TaskBag** that stores
 - **TaskBag** — Add tasks with `addTask(operation:)` or `add(_:)`. No IDs; no per-task removal. Call `cancel()` to cancel all tasks, or they are cancelled on deinit.
 - **IdentifiableTaskBag** — Key tasks by any `Hashable` & `Sendable` type (e.g. `String`, enum). At most one task per ID; duplicate IDs are ignored. Tasks are removed when they complete.
 - **Cancellation** — TaskBag: `cancel()` cancels all; deinit cancels all. IdentifiableTaskBag: `cancel(id:)` cancels one task by ID; deinit cancels all.
-- **No strong cycles** — IdentifiableTaskBag tasks hold a weak reference so the bag can be released when you're done.
+- **No strong cycles from the bag** — IdentifiableTaskBag’s internal task holds a weak reference to the bag so the bag can deallocate. You must still use `[weak self]` in your closures so the *owner* of the bag can deallocate (see [Cancellation and retain cycles](#cancellation-and-retain-cycles)).
 
 ## Requirements
 
@@ -90,17 +90,79 @@ bag.startTask(id: .sync) { await syncWithServer() }
 
 ### Typical pattern: one bag per owner
 
-Keep a bag alongside the object that starts the work. When that object is deallocated, the bag’s `deinit` cancels all its tasks.
+Keep a bag alongside the object that starts the work. When that object is deallocated, the bag’s `deinit` cancels all its tasks. **Use `[weak self]` in your closures** so the owner can deallocate (see [Cancellation and retain cycles](#cancellation-and-retain-cycles) below).
 
 ```swift
 final class DataLoader {
     private let bag = IdentifiableTaskBag<String>()
 
     func loadResource(id: String) {
-        bag.startTask(id: id) { await self.fetch(id) }
+        bag.startTask(id: id) { [weak self] in
+            await self?.fetch(id)
+        }
     }
 }
 ```
+
+## Cancellation and retain cycles
+
+TaskBag cancels tasks when you call `cancel()` / `cancel(id:)` or when the bag is deallocated. **If the owner of the bag never deallocates, the bag never gets deinit, and your tasks are never cancelled by the bag.** That can happen when tasks capture the owner strongly.
+
+Swift `Task` (and the closures you pass to `addTask` / `startTask`) **strongly capture** whatever they reference. So if an object holds a TaskBag and adds work that uses `self`, you get a retain cycle:
+
+- **Owner** → holds **TaskBag** → holds **tasks** → each task’s closure captures **Owner** → Owner is never released.
+
+So the holder of the TaskBag can **fail to deallocate** and create a **strong reference cycle** if the stored tasks capture the holder (e.g. `self`) strongly. Long-running or never-completing work (e.g. `for await` over an infinite stream) makes this permanent: the task never finishes, so the cycle never breaks.
+
+**How to avoid it:**
+
+1. **Use `[weak self]`** in closures you pass to `addTask` or `startTask`, and in any `Task { ... }` you pass to `stored(in:)`:
+
+   ```swift
+   // ✅ Owner can deallocate; bag’s deinit will cancel tasks
+   bag.addTask { [weak self] in await self?.refresh() }
+   bag.startTask(id: "x") { [weak self] in await self?.sync() }
+   Task { [weak self] in await self?.work() }.stored(in: bag)
+   ```
+
+2. **Don’t** rely only on the bag’s deinit if your closures capture `self` strongly:
+
+   ```swift
+   // ❌ Retain cycle: owner → bag → task → owner
+   bag.addTask { await self.refresh() }
+   ```
+
+3. For **long-lived or infinite work** (e.g. `for await value in stream { ... }`), the same rules apply: the task may never complete, so without `[weak self]` the owner and the bag stay alive forever. Explicitly capture only what you need (e.g. the stream) and use weak references for the owner. See [“Using Async For/Await? You’re Probably Doing It Wrong”](https://medium.com/the-swift-cooperative/using-async-for-await-youre-probably-doing-it-wrong-88b66fbb0e84) for the broader async/await and `for await` pitfalls.
+
+4. **Check for task cancellation** in long-running work. When the bag cancels a task (via `cancel()`, `cancel(id:)`, or deinit), the task is marked cancelled but your code must actually stop. Use `Task.isCancelled` or `try Task.checkCancellation()` (throws `CancellationError`) so the task exits when cancelled:
+
+   ```swift
+   bag.addTask { [weak self] in
+       while !Task.isCancelled {
+           await self?.doWork()
+           try? await Task.sleep(nanoseconds: 1_000_000_000)
+       }
+   }
+   // or
+   bag.addTask {
+       try Task.checkCancellation()  // throw to exit early
+       await doLongWork()
+   }
+   ```
+
+5. **In a `for await` loop, check `self` for non-null and check for cancellation inside the loop.** With `[weak self]`, use `guard let self else { break }` so that when the owner is deallocated the loop exits, and you get a non-optional `self` for async calls (e.g. `await self.handle(value)`). Also check `Task.isCancelled` (or `try Task.checkCancellation()`) so the loop exits when the bag cancels the task:
+
+   ```swift
+   bag.addTask { [weak self, stream] in
+       for await value in stream {
+           guard let self else { break }
+           if Task.isCancelled { break }
+           await self.handle(value)
+       }
+   }
+   ```
+
+**Summary:** TaskBag does not retain your type; the **tasks** you put in it do. Use `[weak self]` (or equivalent) in those tasks so the owner can deallocate and the bag’s `deinit` can run and cancel the tasks. In long-running or `for await` work, check for cancellation and check `self` inside the loop so the task can stop and the loop can exit when the owner is gone.
 
 ## API
 
@@ -133,9 +195,9 @@ No IDs; no per-task removal. Tasks stay in the bag until `cancel()` or deinit.
 | `task.stored(in: TaskBag)` | Stores this task in the bag. The task will be cancelled when the bag is deallocated. |
 | `task.stored(in: IdentifiableTaskBag<K>, id: K)` | Stores this task in the identifiable bag under `id`. No-op if that ID already has a task. |
 
-## Concurrency note
+## Thread safety
 
-Both types are intended for use from a single actor or serialized context (e.g. main actor). Concurrent calls from multiple threads may require additional synchronization at the call site for safe use.
+Both types use an internal `NSLock` to protect their storage. All methods (`addTask`, `add`, `cancel`, `startTask`, `cancel(id:)`, and deinit) take the lock for the duration of any read or write. **The bags are thread-safe**: you can call them from multiple threads or tasks concurrently without additional synchronization.
 
 ## Running tests
 
