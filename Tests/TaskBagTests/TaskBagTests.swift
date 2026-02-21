@@ -242,6 +242,27 @@ struct IdentifiableTaskBagEdgeCaseTests {
         try? await Task.sleep(nanoseconds: 100_000_000)
         #expect(count.value == 2)
     }
+
+    @Test("cancel(id:) cancels the task and removes it; same ID can be used again")
+    func cancelByIdCancelsAndFreesId() async {
+        let bag = IdentifiableTaskBag<String>()
+        let cancelled = _MutableBox(false)
+        bag.startTask(id: "x") {
+            do {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+            } catch {
+                cancelled.value = true
+            }
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        bag.cancel(id: "x")
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        #expect(cancelled.value == true)
+        let ran = _MutableBox(false)
+        bag.startTask(id: "x") { ran.value = true }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(ran.value == true)
+    }
 }
 
 // MARK: - Memory and lifecycle

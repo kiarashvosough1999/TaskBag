@@ -98,7 +98,7 @@ public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable
 
         tasks[id] = Task { [weak self] in
             await operation()
-            self?.removeTask(id)
+            self?.removeCompletedTask(id)
         }
         lock.unlock()
     }
@@ -116,7 +116,16 @@ public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable
         lock.unlock()
     }
 
-    private func removeTask(_ id: K) {
+    /// Cancels the task for the given ID (if any) and removes it from the bag.
+    public func cancel(id: K) {
+        lock.lock()
+        let task = tasks[id]
+        tasks[id] = nil
+        lock.unlock()
+        task?.cancel()
+    }
+
+    private func removeCompletedTask(_ id: K) {
         lock.lock()
         tasks[id] = nil
         lock.unlock()

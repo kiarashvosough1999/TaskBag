@@ -10,7 +10,7 @@ A small Swift library for managing async tasks: a simple **TaskBag** that stores
 
 - **TaskBag** — Add tasks with `addTask(operation:)` or `add(_:)`. No IDs; no per-task removal. Call `cancel()` to cancel all tasks, or they are cancelled on deinit.
 - **IdentifiableTaskBag** — Key tasks by any `Hashable` & `Sendable` type (e.g. `String`, enum). At most one task per ID; duplicate IDs are ignored. Tasks are removed when they complete.
-- **Cancellation** — TaskBag: `cancel()` cancels all; deinit cancels all. IdentifiableTaskBag: deinit cancels all.
+- **Cancellation** — TaskBag: `cancel()` cancels all; deinit cancels all. IdentifiableTaskBag: `cancel(id:)` cancels one task by ID; deinit cancels all.
 - **No strong cycles** — IdentifiableTaskBag tasks hold a weak reference so the bag can be released when you're done.
 
 ## Requirements
@@ -120,6 +120,7 @@ No IDs; no per-task removal. Tasks stay in the bag until `cancel()` or deinit.
 | Method | Description |
 |--------|-------------|
 | `init()` | Creates an empty identifiable task bag. |
+| `cancel(id: K)` | Cancels the task for the given ID (if any) and removes it from the bag. |
 | `startTask(id: K, operation: () async -> Void)` | Starts the async `operation` under `id`. If a task for `id` is already running, this call does nothing. When the operation finishes, the task is removed from the bag. |
 | `add(_ task: Task<Void, Never>, id: K)` | Stores an existing task under `id`. If a task for that ID already exists, does nothing. The task will be cancelled on deinit (not removed when it completes). |
 
