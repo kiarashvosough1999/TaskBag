@@ -4,15 +4,14 @@
   <img src="assets/taskbag-logo.svg" alt="TaskBag logo" width="240">
 </p>
 
-A small Swift library for managing async tasks by ID. Start at most one task per ID, get automatic cleanup when tasks finish, and cancellation when the bag is deallocated.
+A small Swift library for managing async tasks: a simple **TaskBag** that stores tasks in an array (no IDs), and **IdentifiableTaskBag** that runs at most one task per ID. Call **TaskBag.cancel()** or deinit to cancel all tasks.
 
 ## Features
 
-- **Keyed tasks** — Run async work keyed by any `Hashable` & `Sendable` type (e.g. `String`, enum).
-- **Single task per ID** — Calling `startTask(id:operation:)` with an existing ID is a no-op; no duplicate work.
-- **Automatic cleanup** — When a task completes, it is removed from the bag.
-- **Cancellation on deinit** — When a `TaskBag` is deallocated, all running tasks are cancelled.
-- **No strong cycles** — Tasks hold a weak reference to the bag so the bag can be released when you're done.
+- **TaskBag** — Add tasks with `addTask(operation:)` or `add(_:)`. No IDs; no per-task removal. Call `cancel()` to cancel all tasks, or they are cancelled on deinit.
+- **IdentifiableTaskBag** — Key tasks by any `Hashable` & `Sendable` type (e.g. `String`, enum). At most one task per ID; duplicate IDs are ignored. Tasks are removed when they complete.
+- **Cancellation** — TaskBag: `cancel()` cancels all; deinit cancels all. IdentifiableTaskBag: deinit cancels all.
+- **No strong cycles** — IdentifiableTaskBag tasks hold a weak reference so the bag can be released when you're done.
 
 ## Requirements
 
@@ -41,30 +40,40 @@ Or in Xcode: **File → Add Package Dependencies** and enter the repository URL.
 
 ## Usage
 
-### Basic example
+### TaskBag (unkeyed)
+
+Add tasks with no ID; they stay in the bag until you call `cancel()` or the bag is deallocated.
 
 ```swift
 import TaskBag
 
-let bag = TaskBag<String>()
+let bag = TaskBag()
 
-// Start a task for ID "refresh"
-bag.startTask(id: "refresh") {
-    await doRefresh()
-}
-
-// Second call with same ID is ignored (task already running)
-bag.startTask(id: "refresh") {
-    await doRefresh()  // not run
-}
-
-// Different IDs run separately
-bag.startTask(id: "sync") {
-    await doSync()
-}
+bag.addTask { await doRefresh() }
+bag.addTask { await doSync() }
+// Or store an existing task:
+Task { await doRefresh() }.stored(in: bag)
+// Cancel all when done:
+bag.cancel()
 ```
 
-### With enum IDs
+### IdentifiableTaskBag (keyed by ID)
+
+At most one task per ID; duplicate IDs are ignored until the current task finishes.
+
+```swift
+import TaskBag
+
+let bag = IdentifiableTaskBag<String>()
+
+bag.startTask(id: "refresh") { await doRefresh() }
+bag.startTask(id: "refresh") { await doRefresh() }  // ignored
+bag.startTask(id: "sync") { await doSync() }        // runs
+// Or store an existing task under an ID:
+Task { await doSync() }.stored(in: bag, id: "sync")
+```
+
+### IdentifiableTaskBag with enum IDs
 
 ```swift
 enum WorkerID: String, Sendable {
@@ -73,45 +82,59 @@ enum WorkerID: String, Sendable {
     case upload
 }
 
-let bag = TaskBag<WorkerID>()
+let bag = IdentifiableTaskBag<WorkerID>()
 
-bag.startTask(id: .refresh) {
-    await refreshData()
-}
-
-bag.startTask(id: .sync) {
-    await syncWithServer()
-}
+bag.startTask(id: .refresh) { await refreshData() }
+bag.startTask(id: .sync) { await syncWithServer() }
 ```
 
 ### Typical pattern: one bag per owner
 
-Keep a `TaskBag` alongside the object that starts the work (e.g. a view model or service). When that object is deallocated, its bag’s `deinit` cancels all its tasks.
+Keep a bag alongside the object that starts the work. When that object is deallocated, the bag’s `deinit` cancels all its tasks.
 
 ```swift
 final class DataLoader {
-    private let bag = TaskBag<String>()
+    private let bag = IdentifiableTaskBag<String>()
 
     func loadResource(id: String) {
-        bag.startTask(id: id) {
-            await self.fetch(id)
-        }
+        bag.startTask(id: id) { await self.fetch(id) }
     }
 }
 ```
 
 ## API
 
+### TaskBag
+
+No IDs; no per-task removal. Tasks stay in the bag until `cancel()` or deinit.
+
 | Method | Description |
 |--------|-------------|
 | `init()` | Creates an empty task bag. |
+| `cancel()` | Cancels all tasks in the bag and clears the bag. |
+| `addTask(operation: () async -> Void)` | Adds a task that runs the operation. It stays in the bag until `cancel()` or deinit. |
+| `add(_ task: Task<Void, Never>)` | Stores an existing task in the bag. It stays in the bag until `cancel()` or deinit. |
+
+### IdentifiableTaskBag&lt;K&gt;
+
+| Method | Description |
+|--------|-------------|
+| `init()` | Creates an empty identifiable task bag. |
 | `startTask(id: K, operation: () async -> Void)` | Starts the async `operation` under `id`. If a task for `id` is already running, this call does nothing. When the operation finishes, the task is removed from the bag. |
+| `add(_ task: Task<Void, Never>, id: K)` | Stores an existing task under `id`. If a task for that ID already exists, does nothing. The task will be cancelled on deinit (not removed when it completes). |
 
 **Generic constraint:** `K: Hashable & Sendable` (e.g. `String`, enums with `Sendable` raw value).
 
+### Task extension
+
+| Method | Description |
+|--------|-------------|
+| `task.stored(in: TaskBag)` | Stores this task in the bag. The task will be cancelled when the bag is deallocated. |
+| `task.stored(in: IdentifiableTaskBag<K>, id: K)` | Stores this task in the identifiable bag under `id`. No-op if that ID already has a task. |
+
 ## Concurrency note
 
-`TaskBag` is intended for use from a single actor or serialized context (e.g. main actor). Concurrent calls to `startTask(id:operation:)` from multiple threads may require additional synchronization at the call site for safe use.
+Both types are intended for use from a single actor or serialized context (e.g. main actor). Concurrent calls from multiple threads may require additional synchronization at the call site for safe use.
 
 ## Running tests
 
