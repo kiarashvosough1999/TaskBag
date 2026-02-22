@@ -4,6 +4,18 @@
   <img src="assets/taskbag-logo-full.svg" alt="TaskBag — Async Task Manager" width="400">
 </p>
 
+<p align="center">
+  <a href="https://github.com/kiarashvosough1999/TaskBag/actions/workflows/swift.yml">
+    <img src="https://github.com/kiarashvosough1999/TaskBag/actions/workflows/swift.yml/badge.svg" alt="Swift build and test">
+  </a>
+  <img src="https://img.shields.io/badge/Swift-6.1-orange?style=flat-square" alt="Swift 6.1">
+  <img src="https://img.shields.io/badge/Platforms-macOS_iOS-green?style=flat-square" alt="Platforms">
+  <img src="https://img.shields.io/badge/Swift_Package_Manager-compatible-orange?style=flat-square" alt="SPM">
+  <a href="https://www.linkedin.com/in/kiarashvosough/">
+    <img src="https://img.shields.io/badge/LinkedIn-KiarashVosough-blue?style=flat-square" alt="LinkedIn">
+  </a>
+</p>
+
 A small Swift library for managing async tasks: a simple **TaskBag** that stores tasks in an array (no IDs), and **IdentifiableTaskBag** that runs at most one task per ID. Call **TaskBag.cancel()** or deinit to cancel all tasks.
 
 ## Features
@@ -15,8 +27,10 @@ A small Swift library for managing async tasks: a simple **TaskBag** that stores
 
 ## Requirements
 
-- Swift 6.1+
-- macOS 10.15+ / iOS 13+
+| Platform | Minimum Swift Version | Installation | Status |
+| --- | --- | --- | --- |
+| iOS 13.0+ | 6.1 | [SPM](#swift-package-manager) | Tested |
+| macOS 10.15+ | 6.1 | [SPM](#swift-package-manager) | Tested |
 
 ## Installation
 
