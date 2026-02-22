@@ -1,8 +1,6 @@
 # TaskBag
 
-<p align="center">
-  <img src="assets/taskbag-logo-full.svg" alt="TaskBag logo" width="240">
-</p>
+
 
 A small Swift library for managing async tasks: a simple **TaskBag** that stores tasks in an array (no IDs), and **IdentifiableTaskBag** that runs at most one task per ID. Call **TaskBag.cancel()** or deinit to cancel all tasks.
 
@@ -26,7 +24,7 @@ Add TaskBag to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/YOUR_USERNAME/TaskBag.git", from: "1.0.0"),
+    .package(url: "https://github.com/kiarashvosough1999/TaskBag.git", from: "1.0.0"),
 ],
 targets: [
     .target(
@@ -117,26 +115,20 @@ So the holder of the TaskBag can **fail to deallocate** and create a **strong re
 **How to avoid it:**
 
 1. **Use `[weak self]`** in closures you pass to `addTask` or `startTask`, and in any `Task { ... }` you pass to `stored(in:)`:
-
-   ```swift
+  ```swift
    // ✅ Owner can deallocate; bag’s deinit will cancel tasks
    bag.addTask { [weak self] in await self?.refresh() }
    bag.startTask(id: "x") { [weak self] in await self?.sync() }
    Task { [weak self] in await self?.work() }.stored(in: bag)
-   ```
-
+  ```
 2. **Don’t** rely only on the bag’s deinit if your closures capture `self` strongly:
-
-   ```swift
+  ```swift
    // ❌ Retain cycle: owner → bag → task → owner
    bag.addTask { await self.refresh() }
-   ```
-
+  ```
 3. For **long-lived or infinite work** (e.g. `for await value in stream { ... }`), the same rules apply: the task may never complete, so without `[weak self]` the owner and the bag stay alive forever. Explicitly capture only what you need (e.g. the stream) and use weak references for the owner. See [“Using Async For/Await? You’re Probably Doing It Wrong”](https://medium.com/the-swift-cooperative/using-async-for-await-youre-probably-doing-it-wrong-88b66fbb0e84) for the broader async/await and `for await` pitfalls.
-
 4. **Check for task cancellation** in long-running work. When the bag cancels a task (via `cancel()`, `cancel(id:)`, or deinit), the task is marked cancelled but your code must actually stop. Use `Task.isCancelled` or `Task.checkCancellation()` (wrap in `do`/`catch` since `addTask`/`startTask` take non-throwing closures) so the task exits when cancelled:
-
-   ```swift
+  ```swift
    bag.addTask { [weak self] in
        while !Task.isCancelled {
            await self?.doWork()
@@ -152,11 +144,9 @@ So the holder of the TaskBag can **fail to deallocate** and create a **strong re
            // exit when cancelled
        }
    }
-   ```
-
+  ```
 5. **In a `for await` loop, check `self` for non-null and check for cancellation inside the loop.** With `[weak self]`, use `guard let self else { break }` so that when the owner is deallocated the loop exits, and you get a non-optional `self` for async calls (e.g. `await self.handle(value)`). Also check `Task.isCancelled` (or use `Task.checkCancellation()` in a `do`/`catch`) so the loop exits when the bag cancels the task:
-
-   ```swift
+  ```swift
    bag.addTask { [weak self, stream] in
        for await value in stream {
            guard let self else { break }
@@ -164,7 +154,7 @@ So the holder of the TaskBag can **fail to deallocate** and create a **strong re
            await self.handle(value)
        }
    }
-   ```
+  ```
 
 **Summary:** TaskBag does not retain your type; the **tasks** you put in it do. Use `[weak self]` (or equivalent) in those tasks so the owner can deallocate and the bag’s `deinit` can run and cancel the tasks. In long-running or `for await` work, check for cancellation and check `self` inside the loop so the task can stop and the loop can exit when the owner is gone.
 
@@ -174,30 +164,36 @@ So the holder of the TaskBag can **fail to deallocate** and create a **strong re
 
 No IDs; no per-task removal. Tasks stay in the bag until `cancel()` or deinit.
 
-| Method | Description |
-|--------|-------------|
-| `init()` | Creates an empty task bag. |
-| `cancel()` | Cancels all tasks in the bag and clears the bag. |
+
+| Method                                 | Description                                                                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------ |
+| `init()`                               | Creates an empty task bag.                                                           |
+| `cancel()`                             | Cancels all tasks in the bag and clears the bag.                                     |
 | `addTask(operation: () async -> Void)` | Adds a task that runs the operation. It stays in the bag until `cancel()` or deinit. |
-| `add(_ task: Task<Void, Never>)` | Stores an existing task in the bag. It stays in the bag until `cancel()` or deinit. |
+| `add(_ task: Task<Void, Never>)`       | Stores an existing task in the bag. It stays in the bag until `cancel()` or deinit.  |
 
-### IdentifiableTaskBag&lt;K&gt;
 
-| Method | Description |
-|--------|-------------|
-| `init()` | Creates an empty identifiable task bag. |
-| `cancel(id: K)` | Cancels the task for the given ID (if any) and removes it from the bag. |
+### IdentifiableTaskBag
+
+
+| Method                                          | Description                                                                                                                                                            |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init()`                                        | Creates an empty identifiable task bag.                                                                                                                                |
+| `cancel(id: K)`                                 | Cancels the task for the given ID (if any) and removes it from the bag.                                                                                                |
 | `startTask(id: K, operation: () async -> Void)` | Starts the async `operation` under `id`. If a task for `id` is already running, this call does nothing. When the operation finishes, the task is removed from the bag. |
-| `add(_ task: Task<Void, Never>, id: K)` | Stores an existing task under `id`. If a task for that ID already exists, does nothing. The task will be cancelled on deinit (not removed when it completes). |
+| `add(_ task: Task<Void, Never>, id: K)`         | Stores an existing task under `id`. If a task for that ID already exists, does nothing. The task will be cancelled on deinit (not removed when it completes).          |
+
 
 **Generic constraint:** `K: Hashable & Sendable` (e.g. `String`, enums with `Sendable` raw value).
 
 ### Task extension
 
-| Method | Description |
-|--------|-------------|
-| `task.stored(in: TaskBag)` | Stores this task in the bag. The task will be cancelled when the bag is deallocated. |
+
+| Method                                           | Description                                                                               |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `task.stored(in: TaskBag)`                       | Stores this task in the bag. The task will be cancelled when the bag is deallocated.      |
 | `task.stored(in: IdentifiableTaskBag<K>, id: K)` | Stores this task in the identifiable bag under `id`. No-op if that ID already has a task. |
+
 
 ## Thread safety
 
