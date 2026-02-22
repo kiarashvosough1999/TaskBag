@@ -15,7 +15,7 @@ A small Swift library for managing async tasks: a simple **TaskBag** that stores
 
 ## Requirements
 
-- Swift 6.2+
+- Swift 6.1+
 - macOS 10.15+ / iOS 13+
 
 ## Installation
