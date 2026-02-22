@@ -1,6 +1,8 @@
 # TaskBag
 
-
+<p align="center">
+  <img src="assets/taskbag-logo-full.svg" alt="TaskBag — Async Task Manager" width="400">
+</p>
 
 A small Swift library for managing async tasks: a simple **TaskBag** that stores tasks in an array (no IDs), and **IdentifiableTaskBag** that runs at most one task per ID. Call **TaskBag.cancel()** or deinit to cancel all tasks.
 
