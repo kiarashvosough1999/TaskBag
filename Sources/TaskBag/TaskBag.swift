@@ -83,8 +83,7 @@ public final class TaskBag: @unchecked Sendable {
 /// A bag that runs at most one task per ID. Use `addTask(id:operation:)` to run
 /// keyed async work; duplicate IDs are ignored, and tasks are cancelled on deinit.
 /// Thread-safe: uses an internal lock; safe to use from multiple threads concurrently.
-public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable, K: Sendable {
-
+public final class IdentifiableTaskBag<K: Hashable & Sendable>: @unchecked Sendable {
     private var tasks: [K: Task<Void, Never>] = [:]
     private let lock: NSLock = NSLock()
 
