@@ -84,8 +84,11 @@ public final class TaskBag: @unchecked Sendable {
 /// keyed async work; duplicate IDs are ignored, and tasks are cancelled on deinit.
 /// Thread-safe: uses an internal lock; safe to use from multiple threads concurrently.
 public final class IdentifiableTaskBag<K: Hashable & Sendable>: @unchecked Sendable {
+    /// List of tasks grouped by id.
     private var tasks: [K: Task<Void, Never>] = [:]
-    private let lock: NSLock = NSLock()
+
+    /// Simple syncronization primitive.
+    private let lock = NSRecursiveLock()
 
     public init() {}
 
