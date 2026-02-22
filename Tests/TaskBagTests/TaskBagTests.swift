@@ -24,7 +24,7 @@ import Testing
 @testable import TaskBag
 
 // The bags use NSLock internally and are thread-safe for concurrent use. These tests use
-// staggered completion and single-threaded startTask where needed for deterministic timing.
+// staggered completion and single-threaded addTask where needed for deterministic timing.
 
 // MARK: - TaskBag (unkeyed)
 
@@ -119,11 +119,11 @@ struct TaskBagUnkeyedTests {
 @Suite("IdentifiableTaskBag basic behavior")
 struct IdentifiableTaskBagBasicTests {
 
-    @Test("startTask runs operation and removes task on completion")
-    func startTaskRunsAndCleansUp() async {
+    @Test("addTask runs operation and removes task on completion")
+    func addTaskRunsAndCleansUp() async {
         let bag = IdentifiableTaskBag<String>()
         let ran = _MutableBox(false)
-        bag.startTask(id: "run") {
+        bag.addTask(id: "run") {
             ran.value = true
         }
         try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
@@ -134,10 +134,10 @@ struct IdentifiableTaskBagBasicTests {
     func sameIdIgnored() async {
         let bag = IdentifiableTaskBag<String>()
         let count = _MutableBox(0)
-        bag.startTask(id: "same") {
+        bag.addTask(id: "same") {
             count.value += 1
         }
-        bag.startTask(id: "same") {
+        bag.addTask(id: "same") {
             count.value += 1
         }
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -149,8 +149,8 @@ struct IdentifiableTaskBagBasicTests {
         let bag = IdentifiableTaskBag<String>()
         let a = _MutableBox(false)
         let b = _MutableBox(false)
-        bag.startTask(id: "a") { a.value = true }
-        bag.startTask(id: "b") { b.value = true }
+        bag.addTask(id: "a") { a.value = true }
+        bag.addTask(id: "b") { b.value = true }
         try? await Task.sleep(nanoseconds: 50_000_000)
         #expect(a.value == true)
         #expect(b.value == true)
@@ -160,7 +160,7 @@ struct IdentifiableTaskBagBasicTests {
     func emptyStringId() async {
         let bag = IdentifiableTaskBag<String>()
         let ran = _MutableBox(false)
-        bag.startTask(id: "") {
+        bag.addTask(id: "") {
             ran.value = true
         }
         try? await Task.sleep(nanoseconds: 50_000_000)
@@ -203,7 +203,7 @@ struct IdentifiableTaskBagEdgeCaseTests {
         // Use small n and long stagger so completion order is predictable.
         let n = 5
         for i in 0..<n {
-            bag.startTask(id: "id-\(i)") {
+            bag.addTask(id: "id-\(i)") {
                 await count.increment()
                 try? await Task.sleep(nanoseconds: UInt64(i) * 200_000_000) // 200ms stagger
             }
@@ -217,7 +217,7 @@ struct IdentifiableTaskBagEdgeCaseTests {
         let bag = IdentifiableTaskBag<String>()
         let count = _MutableBox(0)
         for _ in 0..<50 {
-            bag.startTask(id: "single") {
+            bag.addTask(id: "single") {
                 try? await Task.sleep(nanoseconds: 300_000_000) // stay alive during loop
                 count.value += 1
             }
@@ -230,12 +230,12 @@ struct IdentifiableTaskBagEdgeCaseTests {
     func sameIdReusedAfterCompletion() async {
         let bag = IdentifiableTaskBag<String>()
         let count = _MutableBox(0)
-        bag.startTask(id: "reuse") {
+        bag.addTask(id: "reuse") {
             count.value += 1
         }
         try? await Task.sleep(nanoseconds: 100_000_000)
         #expect(count.value == 1)
-        bag.startTask(id: "reuse") {
+        bag.addTask(id: "reuse") {
             count.value += 1
         }
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -246,7 +246,7 @@ struct IdentifiableTaskBagEdgeCaseTests {
     func cancelByIdCancelsAndFreesId() async {
         let bag = IdentifiableTaskBag<String>()
         let cancelled = _MutableBox(false)
-        bag.startTask(id: "x") {
+        bag.addTask(id: "x") {
             do {
                 try await Task.sleep(nanoseconds: 5_000_000_000)
             } catch {
@@ -258,7 +258,7 @@ struct IdentifiableTaskBagEdgeCaseTests {
         try? await Task.sleep(nanoseconds: 100_000_000)
         #expect(cancelled.value == true)
         let ran = _MutableBox(false)
-        bag.startTask(id: "x") { ran.value = true }
+        bag.addTask(id: "x") { ran.value = true }
         try? await Task.sleep(nanoseconds: 50_000_000)
         #expect(ran.value == true)
     }
@@ -275,7 +275,7 @@ struct IdentifiableTaskBagMemoryTests {
         let cancelled = _MutableBox(false)
         do {
             let bag = IdentifiableTaskBag<String>()
-            bag.startTask(id: "long") {
+            bag.addTask(id: "long") {
                 started.value = true
                 do {
                     try await Task.sleep(nanoseconds: 5_000_000_000)
@@ -298,7 +298,7 @@ struct IdentifiableTaskBagMemoryTests {
         do {
             let bag = IdentifiableTaskBag<String>()
             weakBag = bag
-            bag.startTask(id: "ephemeral") { }
+            bag.addTask(id: "ephemeral") { }
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         // Bag is out of scope; if task held strong reference we might still have it
@@ -317,11 +317,11 @@ private enum TaskId: String, Sendable {
 @Suite("IdentifiableTaskBag RawRepresentable ID")
 struct IdentifiableTaskBagRawRepresentableTests {
 
-    @Test("startTask with RawRepresentable ID runs operation")
+    @Test("addTask with RawRepresentable ID runs operation")
     func rawRepresentableIdRuns() async {
         let bag = IdentifiableTaskBag<TaskId>()
         let ran = _MutableBox(false)
-        bag.startTask(id: TaskId.one) {
+        bag.addTask(id: TaskId.one) {
             ran.value = true
         }
         try? await Task.sleep(nanoseconds: 50_000_000)
@@ -332,8 +332,8 @@ struct IdentifiableTaskBagRawRepresentableTests {
     func rawRepresentableSameIdIgnored() async {
         let bag = IdentifiableTaskBag<TaskId>()
         let count = _MutableBox(0)
-        bag.startTask(id: TaskId.one) { count.value += 1 }
-        bag.startTask(id: TaskId.one) { count.value += 1 }
+        bag.addTask(id: TaskId.one) { count.value += 1 }
+        bag.addTask(id: TaskId.one) { count.value += 1 }
         try? await Task.sleep(nanoseconds: 100_000_000)
         #expect(count.value == 1)
     }
@@ -343,8 +343,8 @@ struct IdentifiableTaskBagRawRepresentableTests {
         let bag = IdentifiableTaskBag<TaskId>()
         let one = _MutableBox(false)
         let two = _MutableBox(false)
-        bag.startTask(id: TaskId.one) { one.value = true }
-        bag.startTask(id: TaskId.two) { two.value = true }
+        bag.addTask(id: TaskId.one) { one.value = true }
+        bag.addTask(id: TaskId.two) { two.value = true }
         try? await Task.sleep(nanoseconds: 50_000_000)
         #expect(one.value == true)
         #expect(two.value == true)
@@ -359,13 +359,13 @@ struct IdentifiableTaskBagRawRepresentableTests {
 @Suite("IdentifiableTaskBag threading and concurrency")
 struct IdentifiableTaskBagThreadingTests {
 
-    @Test("sequential startTask with different IDs from same context")
+    @Test("sequential addTask with different IDs from same context")
     func sequentialDifferentIds() async {
         let bag = IdentifiableTaskBag<String>()
         let count = _AtomicCounter()
         let n = 5
         for i in 0..<n {
-            bag.startTask(id: "seq-\(i)") {
+            bag.addTask(id: "seq-\(i)") {
                 await count.increment()
                 try? await Task.sleep(nanoseconds: UInt64(i) * 200_000_000) // 200ms stagger
             }
@@ -374,12 +374,12 @@ struct IdentifiableTaskBagThreadingTests {
         #expect(await count.get() == n)
     }
 
-    @Test("sequential startTask with same ID only runs one")
+    @Test("sequential addTask with same ID only runs one")
     func sequentialSameId() async {
         let bag = IdentifiableTaskBag<String>()
         let count = _AtomicCounter()
         for _ in 0..<100 {
-            bag.startTask(id: "single") {
+            bag.addTask(id: "single") {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 await count.increment()
             }
@@ -394,7 +394,7 @@ struct IdentifiableTaskBagThreadingTests {
         let completed = _AtomicCounter()
         let n = 5
         for i in 0..<n {
-            bag.startTask(id: "finish-\(i)") {
+            bag.addTask(id: "finish-\(i)") {
                 await completed.increment()
                 try? await Task.sleep(nanoseconds: UInt64(i) * 200_000_000) // 200ms stagger
             }
@@ -407,9 +407,9 @@ struct IdentifiableTaskBagThreadingTests {
     func rapidSequentialSameId() async {
         let bag = IdentifiableTaskBag<String>()
         let count = _AtomicCounter()
-        // Keep the single running task alive during the loop so completion doesn't race with startTask
+        // Keep the single running task alive during the loop so completion doesn't race with addTask
         for _ in 0..<200 {
-            bag.startTask(id: "rapid") {
+            bag.addTask(id: "rapid") {
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 await count.increment()
             }

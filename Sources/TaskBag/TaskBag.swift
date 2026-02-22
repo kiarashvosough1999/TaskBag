@@ -52,7 +52,7 @@ public final class TaskBag: @unchecked Sendable {
     }
 
     /// Adds a new task that runs the given operation. The task stays in the bag until `cancel()` or deinit.
-    public func addTask(operation: @Sendable @escaping () async -> Void) {
+    public func addTask(operation: sending @escaping @isolated(any) () async -> Void) {
         let task = Task { await operation() }
         lock.lock()
         tasks.append(task)
@@ -69,13 +69,13 @@ public final class TaskBag: @unchecked Sendable {
 
 // MARK: - IdentifiableTaskBag (keyed by ID)
 
-/// A bag that runs at most one task per ID. Use `startTask(id:operation:)` to run
+/// A bag that runs at most one task per ID. Use `addTask(id:operation:)` to run
 /// keyed async work; duplicate IDs are ignored, and tasks are cancelled on deinit.
 /// Thread-safe: uses an internal lock; safe to use from multiple threads concurrently.
 public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable, K: Sendable {
 
     private var tasks: [K: Task<Void, Never>] = [:]
-    private let lock = NSLock()
+    private let lock: NSLock = NSLock()
 
     public init() {}
 
@@ -86,11 +86,11 @@ public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable
         tasks.forEach { $0.cancel() }
     }
 
-    /// Starts a task for the given ID. If a task for this ID is already running, this call does nothing.
+    /// Adds a task for the given ID that runs the operation. If a task for this ID is already running, this call does nothing.
     /// When the operation completes, the task is removed from the bag.
-    public func startTask(
+    public func addTask(
         id: K,
-        operation: @Sendable @escaping () async -> Void
+        operation: sending @escaping @isolated(any) () async -> Void
     ) {
         lock.lock()
         guard tasks[id] == nil else {
@@ -107,7 +107,7 @@ public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable
 
     /// Stores an existing task in the bag under the given ID. If a task for this ID is already
     /// running, this call does nothing. The stored task will be cancelled when the bag is deallocated.
-    /// The task is not removed from the bag when it completes (unlike `startTask(id:operation:)`).
+    /// The task is not removed from the bag when it completes (unlike `addTask(id:operation:)`).
     public func add(_ task: Task<Void, Never>, id: K) {
         lock.lock()
         guard tasks[id] == nil else {
