@@ -181,23 +181,25 @@ So the holder of the TaskBag can **fail to deallocate** and create a **strong re
 No IDs; no per-task removal. Tasks stay in the bag until `cancel()` or deinit.
 
 
-| Method                                 | Description                                                                          |
-| -------------------------------------- | ------------------------------------------------------------------------------------ |
-| `init()`                               | Creates an empty task bag.                                                           |
-| `cancel()`                             | Cancels all tasks in the bag and clears the bag.                                     |
-| `addTask(operation: () async -> Void)` | Adds a task that runs the operation. It stays in the bag until `cancel()` or deinit. |
-| `add(_ task: Task<Void, Never>)`       | Stores an existing task in the bag. It stays in the bag until `cancel()` or deinit.  |
+| Method | Description |
+| ------ | ----------- |
+| `init()` | Creates an empty task bag. |
+| `cancel()` | Cancels all tasks in the bag and clears the bag. |
+| `addTask(priority:operation:)` | Adds a task that runs the operation. Optional `priority: TaskPriority?`. Stays in the bag until `cancel()` or deinit. |
+| `addDetachedTask(priority:operation:)` | Adds a detached task (not bound to current actor). Optional `priority`. Stays in the bag until `cancel()` or deinit. |
+| `add(_ task: Task<Void, Never>)` | Stores an existing task in the bag. Stays in the bag until `cancel()` or deinit. |
 
 
 ### IdentifiableTaskBag
 
 
-| Method                                          | Description                                                                                                                                                            |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init()`                                        | Creates an empty identifiable task bag.                                                                                                                                |
-| `cancel(id: K)`                                 | Cancels the task for the given ID (if any) and removes it from the bag.                                                                                                |
-| `addTask(id: K, operation: () async -> Void)` | Starts the async `operation` under `id`. If a task for `id` is already running, this call does nothing. When the operation finishes, the task is removed from the bag. |
-| `add(_ task: Task<Void, Never>, id: K)`         | Stores an existing task under `id`. If a task for that ID already exists, does nothing. The task will be cancelled on deinit (not removed when it completes).          |
+| Method | Description |
+| ------ | ----------- |
+| `init()` | Creates an empty identifiable task bag. |
+| `cancel(id: K)` | Cancels the task for the given ID (if any) and removes it from the bag. |
+| `addTask(id:priority:operation:)` | Adds a task under `id` that runs the operation. Optional `priority: TaskPriority?`. If a task for `id` exists, no-op. Removed when the operation finishes. |
+| `addDetachedTask(id:priority:operation:)` | Adds a detached task under `id` (not bound to current actor). Optional `priority`. Same semantics as `addTask(id:operation:)`. |
+| `add(_ task: Task<Void, Never>, id: K)` | Stores an existing task under `id`. If that ID already has a task, no-op. Cancelled on deinit (not removed when it completes). |
 
 
 **Generic constraint:** `K: Hashable & Sendable` (e.g. `String`, enums with `Sendable` raw value).
@@ -213,7 +215,7 @@ No IDs; no per-task removal. Tasks stay in the bag until `cancel()` or deinit.
 
 ## Thread safety
 
-Both types use an internal `NSLock` to protect their storage. All methods (`addTask`, `add`, `cancel`, `cancel(id:)`, and deinit) take the lock for the duration of any read or write. **The bags are thread-safe**: you can call them from multiple threads or tasks concurrently without additional synchronization.
+Both types use an internal `NSLock` to protect their storage. All methods (`addTask`, `addDetachedTask`, `add`, `cancel`, `cancel(id:)`, and deinit) take the lock for the duration of any read or write. **The bags are thread-safe**: you can call them from multiple threads or tasks concurrently without additional synchronization.
 
 ## Running tests
 

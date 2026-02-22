@@ -112,6 +112,56 @@ struct TaskBagUnkeyedTests {
         try? await Task.sleep(nanoseconds: 100_000_000)
         #expect(cancelled.value == true)
     }
+
+    @Test("addTask(priority:) runs operation with given priority")
+    func addTaskWithPriorityRuns() async {
+        let bag = TaskBag()
+        let ran = _MutableBox(false)
+        bag.addTask(priority: .high) { ran.value = true }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(ran.value == true)
+    }
+
+    @Test("addDetachedTask runs operation")
+    func addDetachedTaskRuns() async {
+        let bag = TaskBag()
+        let ran = _MutableBox(false)
+        bag.addDetachedTask { ran.value = true }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(ran.value == true)
+    }
+
+    @Test("addDetachedTask deinit cancels task")
+    func addDetachedTaskDeinitCancels() async {
+        let started = _MutableBox(false)
+        let cancelled = _MutableBox(false)
+        do {
+            let bag = TaskBag()
+            bag.addDetachedTask {
+                started.value = true
+                do {
+                    try await Task.sleep(nanoseconds: 5_000_000_000)
+                } catch {
+                    cancelled.value = true
+                }
+            }
+            while !started.value {
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        #expect(cancelled.value == true)
+    }
+
+    @Test("addDetachedTask(priority:) runs with priority")
+    func addDetachedTaskWithPriorityRuns() async {
+        let bag = TaskBag()
+        let count = _AtomicCounter()
+        bag.addDetachedTask(priority: .utility) { await count.increment() }
+        bag.addDetachedTask(priority: .background) { await count.increment() }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        #expect(await count.get() == 2)
+    }
 }
 
 // MARK: - IdentifiableTaskBag basic behavior
@@ -188,6 +238,50 @@ struct IdentifiableTaskBagBasicTests {
         }
         try? await Task.sleep(nanoseconds: 100_000_000)
         #expect(cancelled.value == true)
+    }
+
+    @Test("addTask(id:priority:) runs operation with given priority")
+    func addTaskWithPriorityRuns() async {
+        let bag = IdentifiableTaskBag<String>()
+        let ran = _MutableBox(false)
+        bag.addTask(id: "p", priority: .userInitiated) { ran.value = true }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(ran.value == true)
+    }
+
+    @Test("addDetachedTask(id:operation:) runs and removes on completion")
+    func addDetachedTaskRunsAndRemoves() async {
+        let bag = IdentifiableTaskBag<String>()
+        let ran = _MutableBox(false)
+        bag.addDetachedTask(id: "det") { ran.value = true }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(ran.value == true)
+        let ran2 = _MutableBox(false)
+        bag.addDetachedTask(id: "det") { ran2.value = true }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(ran2.value == true)
+    }
+
+    @Test("addDetachedTask(id:) same ID twice only runs first")
+    func addDetachedTaskSameIdIgnored() async {
+        let bag = IdentifiableTaskBag<String>()
+        let count = _MutableBox(0)
+        bag.addDetachedTask(id: "one") {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            count.value += 1
+        }
+        bag.addDetachedTask(id: "one") { count.value += 1 }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        #expect(count.value == 1)
+    }
+
+    @Test("addDetachedTask(id:priority:) runs with priority")
+    func addDetachedTaskWithPriorityRuns() async {
+        let bag = IdentifiableTaskBag<String>()
+        let ran = _MutableBox(false)
+        bag.addDetachedTask(id: "pri", priority: .high) { ran.value = true }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(ran.value == true)
     }
 }
 

@@ -30,13 +30,13 @@ import Foundation
 public final class TaskBag: @unchecked Sendable {
 
     private var tasks: [Task<Void, Never>] = []
-    private let lock = NSLock()
+    private let lock: NSLock = NSLock()
 
     public init() {}
 
     deinit {
         lock.lock()
-        let allTasks = tasks
+        let allTasks: [Task<Void, Never>] = tasks
         tasks = []
         lock.unlock()
         allTasks.forEach { $0.cancel() }
@@ -45,15 +45,26 @@ public final class TaskBag: @unchecked Sendable {
     /// Cancels all tasks stored in the bag and clears the bag.
     public func cancel() {
         lock.lock()
-        let allTasks = tasks
+        let allTasks: [Task<Void, Never>] = tasks
         tasks = []
         lock.unlock()
         allTasks.forEach { $0.cancel() }
     }
 
     /// Adds a new task that runs the given operation. The task stays in the bag until `cancel()` or deinit.
-    public func addTask(operation: sending @escaping @isolated(any) () async -> Void) {
-        let task = Task { await operation() }
+    /// - Parameter priority: Optional task priority; defaults to `nil` (inherited).
+    public func addTask(priority: TaskPriority? = nil, operation: sending @escaping @isolated(any) () async -> Void) {
+        let task: Task<Void, Never> = Task(priority: priority) { await operation() }
+        lock.lock()
+        tasks.append(task)
+        lock.unlock()
+    }
+
+    /// Adds a new detached task that runs the given operation. The task is not bound to the current actor context.
+    /// The task stays in the bag until `cancel()` or deinit.
+    /// - Parameter priority: Optional task priority; defaults to `nil` (inherited).
+    public func addDetachedTask(priority: TaskPriority? = nil, operation: sending @escaping @isolated(any) () async -> Void) {
+        let task: Task<Void, Never> = Task.detached(priority: priority) { await operation() }
         lock.lock()
         tasks.append(task)
         lock.unlock()
@@ -88,8 +99,10 @@ public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable
 
     /// Adds a task for the given ID that runs the operation. If a task for this ID is already running, this call does nothing.
     /// When the operation completes, the task is removed from the bag.
+    /// - Parameter priority: Optional task priority; defaults to `nil` (inherited).
     public func addTask(
         id: K,
+        priority: TaskPriority? = nil,
         operation: sending @escaping @isolated(any) () async -> Void
     ) {
         lock.lock()
@@ -98,7 +111,28 @@ public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable
             return
         }
 
-        tasks[id] = Task { [weak self] in
+        tasks[id] = Task(priority: priority) { [weak self] in
+            await operation()
+            self?.removeCompletedTask(id)
+        }
+        lock.unlock()
+    }
+
+    /// Adds a detached task for the given ID. The task is not bound to the current actor context.
+    /// If a task for this ID is already running, this call does nothing. When the operation completes, the task is removed from the bag.
+    /// - Parameter priority: Optional task priority; defaults to `nil` (inherited).
+    public func addDetachedTask(
+        id: K,
+        priority: TaskPriority? = nil,
+        operation: sending @escaping @isolated(any) () async -> Void
+    ) {
+        lock.lock()
+        guard tasks[id] == nil else {
+            lock.unlock()
+            return
+        }
+
+        tasks[id] = Task.detached(priority: priority) { [weak self] in
             await operation()
             self?.removeCompletedTask(id)
         }
@@ -121,7 +155,7 @@ public final class IdentifiableTaskBag<K>: @unchecked Sendable where K: Hashable
     /// Cancels the task for the given ID (if any) and removes it from the bag.
     public func cancel(id: K) {
         lock.lock()
-        let task = tasks[id]
+        let task: Task<Void, Never>? = tasks[id]
         tasks[id] = nil
         lock.unlock()
         task?.cancel()
