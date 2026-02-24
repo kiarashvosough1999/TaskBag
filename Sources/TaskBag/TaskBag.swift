@@ -34,14 +34,6 @@ public final class TaskBag: @unchecked Sendable {
 
     public init() {}
 
-    deinit {
-        lock.lock()
-        let allTasks: [Task<Void, Never>] = tasks
-        tasks = []
-        lock.unlock()
-        allTasks.forEach { $0.cancel() }
-    }
-
     /// Cancels all tasks stored in the bag and clears the bag.
     public func cancel() {
         lock.lock()
@@ -91,13 +83,6 @@ public final class IdentifiableTaskBag<K: Hashable & Sendable>: @unchecked Senda
     private let lock = NSRecursiveLock()
 
     public init() {}
-
-    deinit {
-        lock.lock()
-        let tasks = self.tasks.values
-        lock.unlock()
-        tasks.forEach { $0.cancel() }
-    }
 
     /// Adds a task for the given ID that runs the operation. If a task for this ID is already running, this call does nothing.
     /// When the operation completes, the task is removed from the bag.
