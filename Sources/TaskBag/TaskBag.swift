@@ -32,14 +32,15 @@ public final class TaskBag: @unchecked Sendable {
     private var tasks: [Task<Void, Never>] = []
     private let lock: NSLock = NSLock()
 
+    /// Prevent accepting new task when deinit is started
+    private var canAcceptNewTask: Bool = true
     public init() {}
 
     deinit {
         lock.lock()
-        let allTasks: [Task<Void, Never>] = tasks
-        tasks = []
+        canAcceptNewTask = false
         lock.unlock()
-        allTasks.forEach { $0.cancel() }
+        cancel()
     }
 
     /// Cancels all tasks stored in the bag and clears the bag.
@@ -56,6 +57,7 @@ public final class TaskBag: @unchecked Sendable {
     public func addTask(priority: TaskPriority? = nil, operation: sending @escaping @isolated(any) () async -> Void) {
         let task: Task<Void, Never> = Task(priority: priority) { await operation() }
         lock.lock()
+        guard canAcceptNewTask else { return }
         tasks.append(task)
         lock.unlock()
     }
@@ -66,6 +68,7 @@ public final class TaskBag: @unchecked Sendable {
     public func addDetachedTask(priority: TaskPriority? = nil, operation: sending @escaping @isolated(any) () async -> Void) {
         let task: Task<Void, Never> = Task.detached(priority: priority) { await operation() }
         lock.lock()
+        guard canAcceptNewTask else { return }
         tasks.append(task)
         lock.unlock()
     }
@@ -73,6 +76,7 @@ public final class TaskBag: @unchecked Sendable {
     /// Stores an existing task in the bag. It stays in the bag until `cancel()` or deinit.
     public func add(_ task: Task<Void, Never>) {
         lock.lock()
+        guard canAcceptNewTask else { return }
         tasks.append(task)
         lock.unlock()
     }
@@ -90,10 +94,14 @@ public final class IdentifiableTaskBag<K: Hashable & Sendable>: @unchecked Senda
     /// Simple syncronization primitive.
     private let lock = NSRecursiveLock()
 
+    /// Prevent accepting new task when deinit is started
+    private var canAcceptNewTask: Bool = true
+
     public init() {}
 
     deinit {
         lock.lock()
+        canAcceptNewTask = false
         let tasks = self.tasks.values
         lock.unlock()
         tasks.forEach { $0.cancel() }
@@ -108,6 +116,7 @@ public final class IdentifiableTaskBag<K: Hashable & Sendable>: @unchecked Senda
         operation: sending @escaping @isolated(any) () async -> Void
     ) {
         lock.lock()
+        guard canAcceptNewTask else { return }
         guard tasks[id] == nil else {
             lock.unlock()
             return
@@ -129,6 +138,7 @@ public final class IdentifiableTaskBag<K: Hashable & Sendable>: @unchecked Senda
         operation: sending @escaping @isolated(any) () async -> Void
     ) {
         lock.lock()
+        guard canAcceptNewTask else { return }
         guard tasks[id] == nil else {
             lock.unlock()
             return
@@ -146,6 +156,7 @@ public final class IdentifiableTaskBag<K: Hashable & Sendable>: @unchecked Senda
     /// The task is not removed from the bag when it completes (unlike `addTask(id:operation:)`).
     public func add(_ task: Task<Void, Never>, id: K) {
         lock.lock()
+        guard canAcceptNewTask else { return }
         guard tasks[id] == nil else {
             lock.unlock()
             return
